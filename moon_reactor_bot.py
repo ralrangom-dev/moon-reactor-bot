@@ -1,66 +1,32 @@
 import os
-import asyncio
-from telethon import TelegramClient, events, functions, types
+from telegram import Update, ReactionTypeEmoji
+from telegram.ext import Application, ChannelPostHandler, ContextTypes
 
-API_ID = int(os.getenv("API_ID", "0"))
-API_HASH = os.getenv("API_HASH", "")
-BOT_TOKEN = os.getenv("BOT_TOKEN", "")
-CHANNEL = os.getenv("CHANNEL", "")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 REACTION = "🌚"
 
-if not API_ID or not API_HASH or not BOT_TOKEN or not CHANNEL:
-    raise RuntimeError("API_ID, API_HASH, BOT_TOKEN و CHANNEL را تنظیم کنید.")
+if not BOT_TOKEN:
+    raise RuntimeError("BOT_TOKEN تنظیم نشده است.")
 
-client = TelegramClient("moon_reactor_session", API_ID, API_HASH)
-
-
-async def react_to_message(message):
+async def react_to_new_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message = update.channel_post
+    if not message:
+        return
     try:
-        await client(
-            functions.messages.SendReactionRequest(
-                peer=CHANNEL,
-                msg_id=message.id,
-                reaction=[types.ReactionEmoji(emoticon=REACTION)],
-                big=False,
-                add_to_recent=False,
-            )
+        await context.bot.set_message_reaction(
+            chat_id=message.chat_id,
+            message_id=message.message_id,
+            reaction=[ReactionTypeEmoji(emoji=REACTION)],
         )
-        print(f"🌚 پیام {message.id} انجام شد")
+        print(f"🌚 پیام {message.message_id}")
     except Exception as e:
-        print(f"❌ پیام {message.id}: {e}")
+        print(f"❌ پیام {message.message_id}: {e}")
 
-
-async def react_to_old_messages():
-    print("🔎 شروع بررسی پیام‌های قبلی...")
-    count = 0
-
-    async for message in client.iter_messages(CHANNEL, reverse=True):
-        if message and not message.out:
-            await react_to_message(message)
-            count += 1
-            await asyncio.sleep(0.15)
-
-    print(f"✅ بررسی پیام‌های قبلی تمام شد: {count} پیام")
-
-
-@client.on(events.NewMessage(chats=CHANNEL))
-async def new_channel_message(event):
-    await react_to_message(event.message)
-
-
-async def main():
-    await client.start(bot_token=BOT_TOKEN)
-
-    me = await client.get_me()
-    print(f"🤖 ربات فعال شد: @{me.username or me.id}")
-    print(f"📢 کانال: {CHANNEL}")
-    print("🌚 واکنش: 🌚")
-
-    await react_to_old_messages()
-
-    print("🟢 از این لحظه پیام‌های جدید هم خودکار 🌚 می‌گیرند.")
-    await client.run_until_disconnected()
-
+def main():
+    app = Application.builder().token(BOT_TOKEN).build()
+    app.add_handler(ChannelPostHandler(react_to_new_post))
+    print("🟢 ربات فعال شد؛ پست‌های جدید کانال خودکار 🌚 می‌گیرند.")
+    app.run_polling(allowed_updates=["channel_post"])
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

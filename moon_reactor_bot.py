@@ -6,7 +6,7 @@ API_ID = int(os.getenv("API_ID", "0"))
 API_HASH = os.getenv("API_HASH", "")
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 CHANNEL = os.getenv("CHANNEL", "")
-REACTION = "🌙"
+REACTION = "🌚"
 
 if not API_ID or not API_HASH or not BOT_TOKEN or not CHANNEL:
     raise RuntimeError("API_ID, API_HASH, BOT_TOKEN و CHANNEL را تنظیم کنید.")
@@ -25,7 +25,7 @@ async def react_to_message(message):
                 add_to_recent=False,
             )
         )
-        print(f"🌙 پیام {message.id} انجام شد")
+        print(f"🌚 پیام {message.id} انجام شد")
     except Exception as e:
         print(f"❌ پیام {message.id}: {e}")
 
@@ -54,11 +54,11 @@ async def main():
     me = await client.get_me()
     print(f"🤖 ربات فعال شد: @{me.username or me.id}")
     print(f"📢 کانال: {CHANNEL}")
-    print("🌙 واکنش: 🌙")
+    print("🌚 واکنش: 🌚")
 
     await react_to_old_messages()
 
-    print("🟢 از این لحظه پیام‌های جدید هم خودکار 🌙 می‌گیرند.")
+    print("🟢 از این لحظه پیام‌های جدید هم خودکار 🌚 می‌گیرند.")
     await client.run_until_disconnected()
 
 

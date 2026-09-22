@@ -1,59 +1,68 @@
 import os
-from telegram import Update, ReactionTypeEmoji
-from telegram.ext import Application, MessageHandler, ContextTypes, filters
+import asyncio
+from telegram import Bot
+from telegram.error import TelegramError
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
 REACTION = "🌚"
 
-if not BOT_TOKEN:
-    raise RuntimeError("BOT_TOKEN تنظیم نشده است.")
+TOKENS = [
+    os.getenv(f"BOT_TOKEN_{i}")
+    for i in range(1, 41)
+]
+
+TOKENS = [token for token in TOKENS if token]
+
+if not TOKENS:
+    raise RuntimeError("هیچ BOT_TOKEN_ای تنظیم نشده است.")
 
 
-async def react_to_new_post(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
-    message = update.channel_post
-
-    if not message:
-        return
-
+async def react_with_bot(token, chat_id, message_id, number):
     try:
-        await context.bot.set_message_reaction(
-            chat_id=message.chat_id,
-            message_id=message.message_id,
-            reaction=[
-                ReactionTypeEmoji(emoji=REACTION)
-            ],
+        bot = Bot(token)
+
+        await bot.set_message_reaction(
+            chat_id=chat_id,
+            message_id=message_id,
+            reaction=[{
+                "type": "emoji",
+                "emoji": REACTION
+            }]
         )
 
-        print(
-            f"🌚 ریکت روی پیام {message.message_id} انجام شد"
-        )
+        print(f"🌚 بات {number}: پیام {message_id}")
+
+        await bot.shutdown()
+
+    except TelegramError as e:
+        print(f"❌ بات {number}: {e}")
 
     except Exception as e:
-        print(
-            f"❌ خطا برای پیام {message.message_id}: {e}"
+        print(f"❌ بات {number}: {e}")
+
+
+async def process_post(chat_id, message_id):
+    tasks = []
+
+    for number, token in enumerate(TOKENS, start=1):
+        tasks.append(
+            react_with_bot(
+                token,
+                chat_id,
+                message_id,
+                number
+            )
         )
 
+    await asyncio.gather(*tasks)
 
-def main():
-    app = Application.builder().token(BOT_TOKEN).build()
 
-    app.add_handler(
-        MessageHandler(
-            filters.UpdateType.CHANNEL_POST,
-            react_to_new_post
-        )
-    )
+async def main():
+    print(f"🟢 تعداد بات‌های فعال: {len(TOKENS)}")
+    print("🌚 سیستم ریکت فعال است.")
 
-    print("🟢 ربات فعال شد")
-    print("🌚 پست‌های جدید کانال خودکار ریکت می‌گیرند.")
-
-    app.run_polling(
-        allowed_updates=["channel_post"]
-    )
+    # این قسمت باید با دریافت پست جدید اجرا شود.
+    # فعلاً برای تست ساختار چندباتی آماده شده است.
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

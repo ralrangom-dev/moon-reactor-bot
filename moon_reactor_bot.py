@@ -7,7 +7,6 @@ from telegram import Bot, ReactionTypeEmoji
 
 REACTIONS = [
     "🍓",
-    "🐳",
     "🌚",
 ]
 
@@ -115,7 +114,7 @@ async def main():
     )
 
     print(
-        "🍓 🐳 🌚"
+        "🍓 🌚"
     )
 
     print(

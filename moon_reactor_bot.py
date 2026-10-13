@@ -1,57 +1,82 @@
 import os
 import asyncio
 import random
+import logging
 
 from telegram import Bot, ReactionTypeEmoji
+from telegram.error import Conflict, RetryAfter, TelegramError
 
 
-REACTIONS = [
-    "🍓",
-    "🌚",
-]
+REACTIONS = ["🍓", "🌚"]
 
+POLL_TIMEOUT = 25
+RETRY_DELAY = 5
+CONFLICT_DELAY = 30
 
-# دریافت BOT_TOKEN_1 تا BOT_TOKEN_40
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(message)s",
+)
+
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logger = logging.getLogger("moon-reactor")
+
+# خواندن توکن‌ها
 TOKENS = []
+SEEN_TOKENS = set()
 
 for i in range(1, 41):
-    token = os.getenv(f"BOT_TOKEN_{i}")
+    token = os.getenv(f"BOT_TOKEN_{i}", "").strip()
 
-    if token:
-        TOKENS.append((i, token))
+    if not token:
+        continue
 
+    # جلوگیری از اجرای یک توکن تکراری در همین برنامه
+    if token in SEEN_TOKENS:
+        logger.error(
+            "توکن تکراری است؛ بات شماره %s اجرا نمی‌شود.", i
+        )
+        continue
+
+    SEEN_TOKENS.add(token)
+    TOKENS.append((i, token))
 
 if not TOKENS:
     raise RuntimeError(
-        "هیچ BOT_TOKEN_ای از BOT_TOKEN_1 تا BOT_TOKEN_40 تنظیم نشده است."
+        "هیچ توکن معتبری در BOT_TOKEN_1 تا BOT_TOKEN_40 پیدا نشد."
     )
 
 
 async def react_to_message(bot, number, message):
-    # انتخاب تصادفی ریکت برای همین پیام
     emoji = random.choice(REACTIONS)
 
     try:
         await bot.set_message_reaction(
             chat_id=message.chat_id,
             message_id=message.message_id,
-            reaction=[
-                ReactionTypeEmoji(emoji=emoji)
-            ],
+            reaction=[ReactionTypeEmoji(emoji=emoji)],
         )
 
-        print(
-            f"✅ بات {number} | "
-            f"پیام {message.message_id} | "
-            f"ریکت: {emoji}"
+        logger.info(
+            "بات %s | پیام %s | ریکت %s",
+            number, message.message_id, emoji,
         )
+        return True
 
-    except Exception as e:
-        print(
-            f"❌ بات {number} | "
-            f"پیام {message.message_id} | "
-            f"خطا: {e}"
+    except RetryAfter as e:
+        logger.warning(
+            "بات %s | محدودیت درخواست؛ %s ثانیه صبر",
+            number, e.retry_after,
         )
+        await asyncio.sleep(float(e.retry_after))
+        return False
+
+    except TelegramError as e:
+        logger.error(
+            "بات %s | پیام %s | خطای ریکت: %s",
+            number, message.message_id, e,
+        )
+        return False
 
 
 async def run_bot(number, token):
@@ -59,16 +84,13 @@ async def run_bot(number, token):
 
     try:
         me = await bot.get_me()
-
-        print(
-            f"🟢 بات {number} فعال شد: "
-            f"@{me.username or me.id}"
+        logger.info(
+            "بات %s فعال شد: @%s",
+            number, me.username or me.id,
         )
 
-        # حذف Webhook قبلی
-        await bot.delete_webhook(
-            drop_pending_updates=False
-        )
+        # پاک کردن webhook برای استفاده از polling
+        await bot.delete_webhook(drop_pending_updates=False)
 
         offset = None
 
@@ -76,66 +98,66 @@ async def run_bot(number, token):
             try:
                 updates = await bot.get_updates(
                     offset=offset,
-                    timeout=30,
+                    timeout=POLL_TIMEOUT,
                     allowed_updates=["channel_post"],
                 )
 
                 for update in updates:
-
+                    # به‌روزرسانی offset حتی برای پیام‌های نادیده‌گرفته‌شده
                     offset = update.update_id + 1
 
                     message = update.channel_post
-
-                    if not message:
+                    if message is None:
                         continue
 
-                    await react_to_message(
-                        bot,
-                        number,
-                        message
-                    )
+                    await react_to_message(bot, number, message)
 
-            except Exception as e:
-
-                print(
-                    f"⚠️ خطای بات {number}: {e}"
+            except Conflict as e:
+                logger.error(
+                    "بات %s | تداخل getUpdates: %s",
+                    number, e,
                 )
+                # اگر نمونه دیگری فعال باشد، این مکث مشکل را
+                # به‌تنهایی حل نمی‌کند؛ از حلقه سریع خطا جلوگیری می‌کند.
+                await asyncio.sleep(CONFLICT_DELAY)
 
-                await asyncio.sleep(5)
+            except RetryAfter as e:
+                await asyncio.sleep(float(e.retry_after))
+
+            except TelegramError as e:
+                logger.error("بات %s | خطای تلگرام: %s", number, e)
+                await asyncio.sleep(RETRY_DELAY)
+
+            except asyncio.CancelledError:
+                raise
+
+            except Exception:
+                logger.exception("بات %s | خطای پیش‌بینی‌نشده", number)
+                await asyncio.sleep(RETRY_DELAY)
 
     finally:
         await bot.shutdown()
 
 
 async def main():
+    logger.info("تعداد بات‌ها: %s", len(TOKENS))
 
-    print(
-        f"🤖 تعداد بات‌های فعال: {len(TOKENS)}"
-    )
+    tasks = [
+        asyncio.create_task(run_bot(number, token))
+        for number, token in TOKENS
+    ]
 
-    print(
-        "🍓 🌚"
-    )
+    try:
+        await asyncio.gather(*tasks)
+    finally:
+        for task in tasks:
+            task.cancel()
 
-    print(
-        "🟢 سیستم ریکت تصادفی فعال شد."
-    )
-
-    tasks = []
-
-    for number, token in TOKENS:
-
-        task = asyncio.create_task(
-            run_bot(
-                number,
-                token
-            )
-        )
-
-        tasks.append(task)
-
-    await asyncio.gather(*tasks)
+        await asyncio.gather(*tasks, return_exceptions=True)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("برنامه متوقف شد.")
